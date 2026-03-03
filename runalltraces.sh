@@ -1,19 +1,12 @@
 #!/bin/bash
 
-
-# Results Directory: change this line to your need
-resdir=allzero
-
-
-
-# This is where traces are
-
+resdir=$1
 trdir=traces
 
+mkdir -p ${resdir}
 
-mkdir ${resdir}
 for i in `ls ${trdir}`
 do
-	./cvp -v ${trdir}/$i > ${resdir}/$i.txt
+    ./cvp -v ${trdir}/$i > ${resdir}/$i.txt
 done
 
