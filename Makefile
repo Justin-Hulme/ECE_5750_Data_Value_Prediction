@@ -15,20 +15,25 @@ cvp: $(OBJ)
 %.o: %.cc $(DEPS)
 	$(CC) $(FLAGS) -c -o $@ $<
 
-.PHONY: clean
+.PHONY: clean test single
+
 clean:
 	rm -f *.o cvp
 
-.PHONY: test single
 test: cvp
 	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ]; then \
 		echo "Usage: make test TEST=name REF=reference.csv"; \
 		exit 1; \
 	fi
 	@echo "Running full test: $(TEST)"
-	@./runalltraces.sh $(TEST)
+	@if [ -d "$(TEST)" ]; then \
+		echo "Test directory exists, skipping trace run + conversion."; \
+	else \
+		./runalltraces.sh $(TEST); \
+		mkdir -p results; \
+		python3 convert.py $(TEST); \
+	fi
 	@mkdir -p results
-	@python3 convert.py $(TEST)
 	@python3 grade.py results/$(TEST).csv $(REF)
 
 single: cvp
@@ -37,8 +42,13 @@ single: cvp
 		exit 1; \
 	fi
 	@echo "Running single trace: $(TRACE)"
-	@mkdir -p $(TEST)
-	@./cvp -v traces/$(TRACE) > $(TEST)/$(TRACE).txt
+	@if [ -d "$(TEST)" ]; then \
+		echo "Test directory exists, skipping trace run."; \
+	else \
+		mkdir -p $(TEST); \
+		./cvp -v traces/$(TRACE) > $(TEST)/$(TRACE).txt; \
+		mkdir -p results; \
+		python3 convert.py $(TEST); \
+	fi
 	@mkdir -p results
-	@python3 convert.py $(TEST)
 	@python3 grade.py results/$(TEST).csv $(REF)
