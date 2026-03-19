@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <stdlib.h>
 
 /* Psuedo Code
 
@@ -23,6 +24,51 @@ struct VerificationTableEntry
     uint8_t valid;
     uint64_t data;
 };
+
+struct LinkedListElement{
+    uint64_t pc;
+    uint64_t seq_num;
+    struct LinkedListElement* next;
+};
+
+LinkedListElement *head = NULL;
+
+void add_new_association(uint64_t pc, uint64_t seq_num){
+    LinkedListElement* new_element = (LinkedListElement*)malloc(sizeof(LinkedListElement));
+
+    new_element->pc = pc;
+    new_element->seq_num = seq_num;
+    new_element->next = head;
+
+    head = new_element;
+}
+
+uint64_t get_pc(uint64_t seq_num){
+    LinkedListElement* prev = NULL;
+    LinkedListElement* cur = head;
+
+    while (cur != NULL && cur->seq_num != seq_num){
+        prev = cur;
+        cur = cur->next;
+    }
+
+    if (cur == NULL){
+        printf("You done messed up%" PRIu64 "\n", seq_num);
+        return 0;
+    }
+
+    uint64_t return_pc = cur->pc;
+
+    if (prev == NULL) {
+        head = cur->next;
+    } else {
+        prev->next = cur->next;
+    }
+
+    free(cur);
+
+    return return_pc;
+}
 
 
 VerificationTableEntry verification_table[TABLE_SIZE];
@@ -55,9 +101,6 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
         return false;
     }
 }
-
-
-
 
 void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # (starts at 0 and increments indefinitely)
                        bool eligible,			// true: instruction is eligible for value prediction. false: not eligible.
@@ -95,17 +138,30 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
 
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
+
+    if (eligible){
+        add_new_association(pc, seq_no);
+    }
 }
 
 void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
-		         uint64_t actual_addr,	// load or store address (0xdeadbeef if not a load or store instruction)
-		         uint64_t actual_value,	// value of destination register (0xdeadbeef if instr. is not eligible for value prediction)
-		         uint64_t actual_latency) {	// actual execution latency of instruction
+		             uint64_t actual_addr,	// load or store address (0xdeadbeef if not a load or store instruction)
+		             uint64_t actual_value,	// value of destination register (0xdeadbeef if instr. is not eligible for value prediction)
+		             uint64_t actual_latency) {	// actual execution latency of instruction
 
     // It is now safe to update the address history register
     //if(insn == loadInstClass || insn == storeInstClass) 
-    if(actual_addr != 0xdeadbeef)
-     addrHist = (addrHist << 4) | actual_addr;
+
+    uint64_t pc = get_pc(seq_no);
+
+    if(pc != 0xdeadbeef) {
+        addrHist = (addrHist << 4) | actual_addr;
+
+        uint64_t hashed_address = hash_address(actual_addr);
+
+        verification_table[hashed_address].data = actual_value;
+        verification_table[hashed_address].valid = 1;
+    }
 }
 
 void beginPredictor(int argc_other, char **argv_other) {
@@ -123,4 +179,13 @@ void beginPredictor(int argc_other, char **argv_other) {
 void endPredictor() {
 	printf("CONTESTANT OUTPUT--------------------------\n");
 	printf("--------------------------\n");
+
+    uint64_t length = 0;
+    LinkedListElement* cur = head;
+    while (cur->next != NULL){
+        length ++;
+        cur = cur->next;
+    }
+
+    printf("Linked List Length: %" PRIu64 "\n", length);
 }
