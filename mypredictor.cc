@@ -21,12 +21,12 @@
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 #define CONF_THRESH 1
-#define MAX_CONF 2
+#define MAX_CONF 255
 
 struct VerificationTableEntry
 {
     uint64_t data;
-    int8_t stride;
+    int64_t stride;
     uint8_t conf;
 };
 
@@ -53,15 +53,14 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
     // basic prediction
     uint64_t hashed_address = hash_address(pc);
 
-    VerificationTableEntry entry = verification_table[hashed_address];
+    auto &entry = verification_table[hashed_address];
 
-    if (entry.conf >= CONF_THRESH){
+    if (entry.conf >= CONF_THRESH && piece == 0){
         predicted_value = entry.data + entry.stride;
         // printf("Predicted Value: %" PRIu64 "\n", entry.data);
         return true;
     }
     else {
-        printf("table miss\n");
         return false;
     }
 }
@@ -103,7 +102,7 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
 
-    if (insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass){
+    if ((insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass) && eligible && piece == 0){
         SeqNumToPC.insert({seq_no, pc});
     }
 }
@@ -116,25 +115,41 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
     // It is now safe to update the address history register
     //if(insn == loadInstClass || insn == storeInstClass) 
 
-    uint64_t pc = SeqNumToPC[seq_no];
-    SeqNumToPC.erase(seq_no);
+    auto it = SeqNumToPC.find(seq_no);
+    if (it == SeqNumToPC.end()) return;
 
-    if(pc != 0xdeadbeef) {
+    uint64_t pc = it->second;
+    SeqNumToPC.erase(it);
+
+    if(actual_addr != 0xdeadbeef) {
         addrHist = (addrHist << 4) | actual_addr;
+    }
 
-        uint64_t hashed_address = hash_address(actual_addr);
-        VerificationTableEntry entry = verification_table[hashed_address];
+    if(actual_value != 0xdeadbeef){
 
-        if (actual_value == (entry.data + entry.stride)) {
-            verification_table[hashed_address].conf = (entry.conf == MAX_CONF) ? MAX_CONF : (entry.conf + 1);
+        uint64_t hashed_address = hash_address(pc);
+        auto &entry = verification_table[hashed_address];
+
+        int64_t new_stride = actual_value - entry.data;
+
+        // if (new_stride == entry.stride) {
+        //     entry.conf = (entry.conf == MAX_CONF) ? MAX_CONF : entry.conf + 1;
+        // } else {
+        //     entry.conf = 0;
+
+        //     entry.stride = new_stride;
+        // }
+
+        if (new_stride == entry.stride) {
+            entry.conf = (entry.conf == MAX_CONF) ? MAX_CONF : entry.conf + 1;
+        } else {
+            entry.conf = (entry.conf > 0) ? entry.conf - 1 : 0;
+            if (entry.conf == 0) {
+                entry.stride = new_stride;
+            }
         }
-        else {
-            verification_table[hashed_address].conf = (entry.conf == 0) ? 0 : (entry.conf - 1);
-        }
 
-        
-        verification_table[hashed_address].stride = actual_value - entry.data;
-        verification_table[hashed_address].data = actual_value;
+        entry.data = actual_value;
     }
 }
 
@@ -145,6 +160,9 @@ void beginPredictor(int argc_other, char **argv_other) {
     for (int i = 0; i < argc_other; i++)
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
 
+    for (int i = 0; i < TABLE_SIZE; i ++){
+        verification_table[i] = {0, 0, 0};
+    }
 }
 
 void endPredictor() {
@@ -154,5 +172,5 @@ void endPredictor() {
     uint64_t length = SeqNumToPC.size();
     
 
-    printf("\nLinked List Length: %" PRIu64 "\n", length);
+    printf("\nHash Table Length: %" PRIu64 "\n", length);
 }
