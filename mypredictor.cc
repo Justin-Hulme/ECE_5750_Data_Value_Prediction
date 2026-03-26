@@ -99,7 +99,7 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
 
-    if (insn == loadInstClass || insn == storeInstClass){
+    if (insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass){
         SeqNumToPC.insert({seq_no, pc});
     }
 }
