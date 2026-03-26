@@ -20,17 +20,27 @@
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
+#define SATURATING_COUNTER_MAX 3
+
 struct VerificationTableEntry
 {
     uint8_t valid;
     uint64_t data;
 };
 
+struct ClarificationTableEntry
+{
+    uint8_t valid;
+    int8_t saturation_counter;
+    uint8_t predict;
+};
+
 std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
 uint64_t table_misses = 0;
+uint64_t table_hits = 0;
 
 VerificationTableEntry verification_table[TABLE_SIZE];
-// uint64_t classification_table[TABLE_SIZE];
+ClarificationTableEntry classification_table[TABLE_SIZE];
 
 // Global branch and path history
 static uint64_t ghr = 0, phist = 0;
@@ -53,11 +63,11 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
 
     if (entry.valid == 1){
         predicted_value = entry.data;
-        // printf("Predicted Value: %" PRIu64 "\n", entry.data);
-        return true;
+        table_hits ++;
+        return classification_table[hashed_address].valid == 1;
     }
     else {
-        printf("table miss\n");
+        table_misses ++;
         return false;
     }
 }
@@ -97,7 +107,7 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
         ghr = (ghr << 1) | (pc + 4 != next_pc);
 
     if(isIndBr)
-	phist = (phist << 4) | (next_pc & 0x3);
+	    phist = (phist << 4) | (next_pc & 0x3);
 
     if (insn == loadInstClass || insn == storeInstClass){
         SeqNumToPC.insert({seq_no, pc});
@@ -119,6 +129,22 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
         addrHist = (addrHist << 4) | actual_addr;
 
         uint64_t hashed_address = hash_address(actual_addr);
+
+        if (verification_table[hashed_address].data == actual_value){
+            classification_table[hashed_address].saturation_counter ++;
+        }
+        else {
+            classification_table[hashed_address].saturation_counter --;
+        }
+        
+        if (classification_table[hashed_address].saturation_counter >= SATURATING_COUNTER_MAX){
+            classification_table[hashed_address].saturation_counter = SATURATING_COUNTER_MAX;
+            classification_table[hashed_address].valid = 1;
+        }
+        else if (classification_table[hashed_address].saturation_counter <= 0){
+            classification_table[hashed_address].saturation_counter = 0;
+            classification_table[hashed_address].valid = 0;
+        }
 
         verification_table[hashed_address].data = actual_value;
         verification_table[hashed_address].valid = 1;
@@ -145,4 +171,6 @@ void endPredictor() {
     
 
     printf("\nLinked List Length: %" PRIu64 "\n", length);
+    printf("\nTable Hits: %" PRIu64 "\n", table_hits);
+    printf("\nTable Misses: %" PRIu64 "\n", table_misses);
 }

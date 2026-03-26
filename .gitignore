@@ -3,3 +3,4 @@ test/
 results/
 all_zeros/
 all_ones/
+value_prediction_*/
