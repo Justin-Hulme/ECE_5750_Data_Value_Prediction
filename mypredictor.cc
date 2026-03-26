@@ -20,10 +20,14 @@
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
+#define CONF_THRESH 1
+#define MAX_CONF 2
+
 struct VerificationTableEntry
 {
-    uint8_t valid;
     uint64_t data;
+    int8_t stride;
+    uint8_t conf;
 };
 
 std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
@@ -51,8 +55,8 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
 
     VerificationTableEntry entry = verification_table[hashed_address];
 
-    if (entry.valid == 1){
-        predicted_value = entry.data;
+    if (entry.conf >= CONF_THRESH){
+        predicted_value = entry.data + entry.stride;
         // printf("Predicted Value: %" PRIu64 "\n", entry.data);
         return true;
     }
@@ -119,9 +123,18 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
         addrHist = (addrHist << 4) | actual_addr;
 
         uint64_t hashed_address = hash_address(actual_addr);
+        VerificationTableEntry entry = verification_table[hashed_address];
 
+        if (actual_value == (entry.data + entry.stride)) {
+            verification_table[hashed_address].conf = (entry.conf == MAX_CONF) ? MAX_CONF : (entry.conf + 1);
+        }
+        else {
+            verification_table[hashed_address].conf = (entry.conf == 0) ? 0 : (entry.conf - 1);
+        }
+
+        
+        verification_table[hashed_address].stride = actual_value - entry.data;
         verification_table[hashed_address].data = actual_value;
-        verification_table[hashed_address].valid = 1;
     }
 }
 
@@ -132,9 +145,6 @@ void beginPredictor(int argc_other, char **argv_other) {
     for (int i = 0; i < argc_other; i++)
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
 
-    for (int i = 0; i < TABLE_SIZE; i++){
-        verification_table[i].valid = 0;
-    }
 }
 
 void endPredictor() {
