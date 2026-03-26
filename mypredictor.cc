@@ -20,7 +20,7 @@
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
-#define SATURATING_COUNTER_MAX 3
+#define SATURATING_COUNTER_MAX 1
 
 struct VerificationTableEntry
 {
