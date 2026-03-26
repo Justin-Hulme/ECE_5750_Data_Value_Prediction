@@ -19,36 +19,60 @@ cvp: $(OBJ)
 
 clean:
 	rm -f *.o cvp
+	rm -rf results
 
+# ------------------------
+# FULL TEST (ALL TRACES)
+# ------------------------
 test: cvp
 	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ]; then \
 		echo "Usage: make test TEST=name REF=reference.csv"; \
 		exit 1; \
 	fi
+
 	@echo "Running full test: $(TEST)"
-	@if [ -d "$(TEST)" ]; then \
-		echo "Test directory exists, skipping trace run + conversion."; \
-	else \
-		./runalltraces.sh $(TEST); \
-		mkdir -p results; \
-		python3 convert.py $(TEST); \
-	fi
+	@mkdir -p $(TEST)
+
+	@for f in traces/*; do \
+		name=$$(basename $$f); \
+		out="$(TEST)/$$name.txt"; \
+		if [ ! -f "$$out" ]; then \
+			echo "Running $$name"; \
+			./cvp -v $$f > "$$out"; \
+		else \
+			echo "Skipping $$name (already exists)"; \
+		fi; \
+	done
+
 	@mkdir -p results
+	@echo "Regenerating CSV..."
+	@python3 convert.py $(TEST)
+
 	@python3 grade.py results/$(TEST).csv $(REF)
 
+# ------------------------
+# SINGLE TRACE
+# ------------------------
 single: cvp
 	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ] || [ -z "$(TRACE)" ]; then \
 		echo "Usage: make single TEST=name REF=reference.csv TRACE=tracefile"; \
 		exit 1; \
 	fi
+
 	@echo "Running single trace: $(TRACE)"
-	@if [ -d "$(TEST)" ]; then \
-		echo "Test directory exists, skipping trace run."; \
+	@mkdir -p $(TEST)
+
+	@TRACE_NAME=$$(basename $(TRACE)); \
+	OUT="$(TEST)/$$TRACE_NAME.txt"; \
+	if [ ! -f "$$OUT" ]; then \
+		echo "Generating $$TRACE_NAME"; \
+		./cvp -v traces/$$TRACE_NAME > "$$OUT"; \
 	else \
-		mkdir -p $(TEST); \
-		./cvp -v traces/$(TRACE) > $(TEST)/$(TRACE).txt; \
-		mkdir -p results; \
-		python3 convert.py $(TEST); \
+		echo "Skipping $$TRACE_NAME (already exists)"; \
 	fi
+
 	@mkdir -p results
+	@echo "Regenerating CSV..."
+	@python3 convert.py $(TEST)
+
 	@python3 grade.py results/$(TEST).csv $(REF)

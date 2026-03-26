@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdlib.h>
+#include <unordered_map>
 
 /* Psuedo Code
 
@@ -16,8 +17,8 @@
 
 */
 
-#define TABLE_ADDRESS_WIDTH 8
-constexpr int TABLE_SIZE = 2^TABLE_ADDRESS_WIDTH;
+#define TABLE_ADDRESS_WIDTH 16
+constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 struct VerificationTableEntry
 {
@@ -25,51 +26,8 @@ struct VerificationTableEntry
     uint64_t data;
 };
 
-struct LinkedListElement{
-    uint64_t pc;
-    uint64_t seq_num;
-    struct LinkedListElement* next;
-};
-
-LinkedListElement *head = NULL;
-
-void add_new_association(uint64_t pc, uint64_t seq_num){
-    LinkedListElement* new_element = (LinkedListElement*)malloc(sizeof(LinkedListElement));
-
-    new_element->pc = pc;
-    new_element->seq_num = seq_num;
-    new_element->next = head;
-
-    head = new_element;
-}
-
-uint64_t get_pc(uint64_t seq_num){
-    LinkedListElement* prev = NULL;
-    LinkedListElement* cur = head;
-
-    while (cur != NULL && cur->seq_num != seq_num){
-        prev = cur;
-        cur = cur->next;
-    }
-
-    if (cur == NULL){
-        printf("You done messed up%" PRIu64 "\n", seq_num);
-        return 0;
-    }
-
-    uint64_t return_pc = cur->pc;
-
-    if (prev == NULL) {
-        head = cur->next;
-    } else {
-        prev->next = cur->next;
-    }
-
-    free(cur);
-
-    return return_pc;
-}
-
+std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
+uint64_t table_misses = 0;
 
 VerificationTableEntry verification_table[TABLE_SIZE];
 // uint64_t classification_table[TABLE_SIZE];
@@ -95,9 +53,11 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
 
     if (entry.valid == 1){
         predicted_value = entry.data;
+        // printf("Predicted Value: %" PRIu64 "\n", entry.data);
         return true;
     }
     else {
+        printf("table miss\n");
         return false;
     }
 }
@@ -139,8 +99,8 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
 
-    if (eligible){
-        add_new_association(pc, seq_no);
+    if (insn == loadInstClass || insn == storeInstClass){
+        SeqNumToPC.insert({seq_no, pc});
     }
 }
 
@@ -152,7 +112,8 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
     // It is now safe to update the address history register
     //if(insn == loadInstClass || insn == storeInstClass) 
 
-    uint64_t pc = get_pc(seq_no);
+    uint64_t pc = SeqNumToPC[seq_no];
+    SeqNumToPC.erase(seq_no);
 
     if(pc != 0xdeadbeef) {
         addrHist = (addrHist << 4) | actual_addr;
@@ -180,12 +141,8 @@ void endPredictor() {
 	printf("CONTESTANT OUTPUT--------------------------\n");
 	printf("--------------------------\n");
 
-    uint64_t length = 0;
-    LinkedListElement* cur = head;
-    while (cur->next != NULL){
-        length ++;
-        cur = cur->next;
-    }
+    uint64_t length = SeqNumToPC.size();
+    
 
-    printf("Linked List Length: %" PRIu64 "\n", length);
+    printf("\nLinked List Length: %" PRIu64 "\n", length);
 }

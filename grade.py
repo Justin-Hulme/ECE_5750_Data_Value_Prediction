@@ -4,9 +4,12 @@ import csv
 def read_csv(filepath):
     with open(filepath, newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)  # skip header
+        header = next(reader)
         rows = list(reader)
     return header, rows
+
+def rows_to_dict(rows):
+    return {row[0]: row for row in rows}
 
 def main():
     if len(sys.argv) != 3:
@@ -16,31 +19,42 @@ def main():
     file1 = sys.argv[1]
     file2 = sys.argv[2]
 
-    header1, rows1 = read_csv(file1)
-    header2, rows2 = read_csv(file2)
+    _, rows1 = read_csv(file1)
+    _, rows2 = read_csv(file2)
 
-    if len(rows1) != len(rows2):
-        print("Error: CSV files must have the same number of data rows.")
-        sys.exit(1)
+    dict1 = rows_to_dict(rows1)
+    dict2 = rows_to_dict(rows2)
+
+    common_keys = sorted(set(dict1.keys()) & set(dict2.keys()))
+    missing_in_2 = set(dict1.keys()) - set(dict2.keys())
+    missing_in_1 = set(dict2.keys()) - set(dict1.keys())
+
+    if missing_in_1:
+        print(f"Warning: {len(missing_in_1)} entries missing in {file1}")
+    if missing_in_2:
+        print(f"Warning: {len(missing_in_2)} entries missing in {file2}")
 
     points = 0
 
-    for row1, row2 in zip(rows1, rows2):
+    for key in common_keys:
+        row1 = dict1[key]
+        row2 = dict2[key]
+
         try:
             val1 = float(row1[-1])
             val2 = float(row2[-1])
         except ValueError:
-            print("Error: Rightmost column must contain numeric values.")
-            sys.exit(1)
+            print(f"{key}\tError: non-numeric value")
+            continue
 
         if val2 <= val1:
             points += 2
-            print(f"{row2[0]}\t\033[32mPASSED\033[0m: {float(row2[-1]):5.2f}% ≤ {float(row1[-1]):5.2f}%")
+            print(f"{key}\t\033[32mPASSED\033[0m: {val2:5.2f}% ≤ {val1:5.2f}%")
         else:
-            # Print first and last column of the worse-performing row
-            print(f"{row2[0]}\t\033[31mFAILED\033[0m: {float(row2[-1]):5.2f}% > {float(row1[-1]):5.2f}%")
+            print(f"{key}\t\033[31mFAILED\033[0m: {val2:5.2f}% > {val1:5.2f}%")
 
-    print(f"\nTotal points: {points}")
+    print(f"\nCompared {len(common_keys)} rows")
+    print(f"Total points: {points}")
 
 if __name__ == "__main__":
     main()
