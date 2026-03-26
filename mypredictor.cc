@@ -24,7 +24,7 @@ constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 struct VerificationTableEntry
 {
-    uint8_t valid;
+    uint8_t tag;
     uint64_t data;
 };
 
@@ -54,14 +54,19 @@ uint64_t hash_address(uint64_t address){
     return lower_bits ^ next_bits;
 }
 
+uint8_t get_tag(uint64_t address) {
+    return static_cast<uint8_t>(address);
+}
+
 bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predicted_value) {
 
     // basic prediction
     uint64_t hashed_address = hash_address(pc);
+    uint8_t pc_tag = get_tag(pc);
 
     VerificationTableEntry entry = verification_table[hashed_address];
 
-    if (entry.valid == 1){
+    if (entry.tag == pc_tag){
         predicted_value = entry.data;
         table_hits ++;
         return classification_table[hashed_address].valid == 1;
@@ -129,6 +134,7 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
         addrHist = (addrHist << 4) | actual_addr;
 
         uint64_t hashed_address = hash_address(actual_addr);
+        uint8_t tag = get_tag(actual_addr);
 
         if (verification_table[hashed_address].data == actual_value){
             classification_table[hashed_address].saturation_counter ++;
@@ -147,7 +153,7 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
         }
 
         verification_table[hashed_address].data = actual_value;
-        verification_table[hashed_address].valid = 1;
+        verification_table[hashed_address].tag = tag;
     }
 }
 
@@ -159,7 +165,7 @@ void beginPredictor(int argc_other, char **argv_other) {
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
 
     for (int i = 0; i < TABLE_SIZE; i++){
-        verification_table[i].valid = 0;
+        verification_table[i].tag = 0;
     }
 }
 
