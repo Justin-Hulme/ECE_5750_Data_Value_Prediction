@@ -66,10 +66,10 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
 
     VerificationTableEntry entry = verification_table[hashed_address];
 
-    if (entry.tag == pc_tag){
+    if (entry.tag == 1){//pc_tag){
         predicted_value = entry.data;
         table_hits ++;
-        return classification_table[hashed_address].valid == 1;
+        return true; //classification_table[hashed_address].valid == 1;
     }
     else {
         table_misses ++;
@@ -114,8 +114,26 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
     if(isIndBr)
 	    phist = (phist << 4) | (next_pc & 0x3);
 
-    if (insn == loadInstClass || insn == storeInstClass){
+    if (insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass){
         SeqNumToPC.insert({seq_no, pc});
+
+        uint64_t hashed_address = hash_address(pc);
+
+        if (prediction_result == 1){
+            classification_table[hashed_address].saturation_counter ++;
+        }
+        else {
+            classification_table[hashed_address].saturation_counter --;
+        }
+        
+        if (classification_table[hashed_address].saturation_counter >= SATURATING_COUNTER_MAX){
+            classification_table[hashed_address].saturation_counter = SATURATING_COUNTER_MAX;
+            classification_table[hashed_address].valid = 1;
+        }
+        else if (classification_table[hashed_address].saturation_counter <= 0){
+            classification_table[hashed_address].saturation_counter = 0;
+            classification_table[hashed_address].valid = 0;
+        }
     }
 }
 
@@ -136,24 +154,8 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
         uint64_t hashed_address = hash_address(actual_addr);
         uint8_t tag = get_tag(actual_addr);
 
-        if (verification_table[hashed_address].data == actual_value){
-            classification_table[hashed_address].saturation_counter ++;
-        }
-        else {
-            classification_table[hashed_address].saturation_counter --;
-        }
-        
-        if (classification_table[hashed_address].saturation_counter >= SATURATING_COUNTER_MAX){
-            classification_table[hashed_address].saturation_counter = SATURATING_COUNTER_MAX;
-            classification_table[hashed_address].valid = 1;
-        }
-        else if (classification_table[hashed_address].saturation_counter <= 0){
-            classification_table[hashed_address].saturation_counter = 0;
-            classification_table[hashed_address].valid = 0;
-        }
-
         verification_table[hashed_address].data = actual_value;
-        verification_table[hashed_address].tag = tag;
+        verification_table[hashed_address].tag = 1;//tag;
     }
 }
 
