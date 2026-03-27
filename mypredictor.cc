@@ -7,14 +7,16 @@
 #include <stdlib.h>
 #include <unordered_map>
 
+bool last_value = false;
+bool stride = false;
+
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 #define CONF_THRESH 1
 #define MAX_CONF 10000
 
-bool last_value = false;
-bool stride = false;
+#define SAT_COUNT_MAX 10000
 
 // struct to hold verification table data
 struct VerificationTableEntry
@@ -24,10 +26,17 @@ struct VerificationTableEntry
     uint16_t conf;
 };
 
-VerificationTableEntry verification_table[TABLE_SIZE];
+struct ClassificationTableEntry
+{
+    uint64_t saturating_counter;
+    int8_t predict;
+};
 
-// unordered_map to map sequence number to pc
+VerificationTableEntry verification_table[TABLE_SIZE];
+ClassificationTableEntry classification_table[TABLE_SIZE];
+
 std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
+uint64_t table_misses = 0;
 
 // Global branch and path history
 static uint64_t ghr = 0, phist = 0;
@@ -63,7 +72,16 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
             return false;
         }
     } else if (last_value){
-    
+        uint64_t hashed_address = hash_address(pc);
+        auto &entry = verification_table[hashed_address];
+
+        if (entry.conf == 1 && classification_table[hashed_address].predict == 1 && piece == 0){
+            predicted_value = entry.data;
+            return true;
+        }
+        else {
+            return false;
+        }
     }
     return false;
 }
@@ -96,7 +114,20 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
             SeqNumToPC.insert({seq_no, pc});
         }
     } else if (last_value){
+        bool isCondBr = insn == condBranchInstClass;
+        bool isIndBr = insn == uncondIndirectBranchInstClass;
+        
+        // Infrastructure provides perfect branch prediction.
+        // As a result, the branch-related histories can be updated now.
+        if(isCondBr)
+            ghr = (ghr << 1) | (pc + 4 != next_pc);
 
+        if(isIndBr)
+        phist = (phist << 4) | (next_pc & 0x3);
+
+        if ((insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass) && eligible && piece == 0){
+            SeqNumToPC.insert({seq_no, pc});
+        }
     }
 }
 
@@ -145,7 +176,42 @@ void updatePredictor(uint64_t seq_no,		    // dynamic micro-instruction #
             entry.data = actual_value;
         }
     } else if (last_value){
+        // if seq_no is not in the hash table then skip
+        auto it = SeqNumToPC.find(seq_no);
+        if (it == SeqNumToPC.end()) return;
 
+        // get pc and remove the association
+        uint64_t pc = it->second;
+        SeqNumToPC.erase(it);
+
+        // update the address history
+        if(actual_addr != 0xdeadbeef) {
+            addrHist = (addrHist << 4) | actual_addr;
+        }
+
+        // if the the instruction is eligible for value prediction
+        if(actual_value != 0xdeadbeef) {
+            uint64_t hashed_address = hash_address(pc);
+            auto &entry = verification_table[hashed_address];
+            auto &class_entry = classification_table[hashed_address];
+
+            if (actual_addr == entry.data){
+                class_entry.saturating_counter ++;
+            } else{
+                class_entry.saturating_counter --;
+            }
+
+            if (class_entry.saturating_counter >= SAT_COUNT_MAX){
+                class_entry.saturating_counter = SAT_COUNT_MAX;
+                class_entry.predict = 1;
+            } else if (class_entry.saturating_counter <= 0){
+                class_entry.saturating_counter = 0;
+                class_entry.predict = 0;
+            }
+
+            entry.data = actual_value;
+            entry.conf = 1;
+        }
     }
 }
 
