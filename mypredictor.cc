@@ -224,9 +224,12 @@ void beginPredictor(int argc_other, char **argv_other) {
         } else if (strcmp(argv_other[0], "stride") == 0){
             stride = true;
         } else {
-            printf("Please include the type of prediction you want as the last argument");
+            printf("The type of prediction can be either \"last_value\" or \"stride\"");
             exit(2);
         }
+    } else {
+        printf("Please include the type of prediction you want as the last argument (\"last_value\" or \"stride\")");
+        exit(2);
     }
 
     for (int i = 0; i < argc_other; i++)

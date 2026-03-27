@@ -25,7 +25,7 @@ clean:
 # FULL TEST (ALL TRACES)
 # ------------------------
 test: cvp
-	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ]; then \
+	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ] || [ -z "$(MODEL)" ]; then \
 		echo "Usage: make test TEST=name REF=reference.csv"; \
 		exit 1; \
 	fi
@@ -38,7 +38,7 @@ test: cvp
 		out="$(TEST)/$$name.txt"; \
 		if [ ! -f "$$out" ]; then \
 			echo "Running $$name"; \
-			./cvp -v $$f > "$$out"; \
+			./cvp -v $$f > "$$out" $(MODEL); \
 		else \
 			echo "Skipping $$name (already exists)"; \
 		fi; \
