@@ -7,34 +7,24 @@
 #include <stdlib.h>
 #include <unordered_map>
 
-/* Psuedo Code
-
-    table to index into
-    hashing function to index into
-    read from and write to table
-
-    take current pc and history and look up value in table and that is predicted value
-
-*/
-
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 #define CONF_THRESH 1
-#define MAX_CONF 255
+#define MAX_CONF 10000
 
+// struct to hold verification table data
 struct VerificationTableEntry
 {
     uint64_t data;
     int64_t stride;
-    uint8_t conf;
+    uint16_t conf;
 };
 
-std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
-uint64_t table_misses = 0;
-
 VerificationTableEntry verification_table[TABLE_SIZE];
-// uint64_t classification_table[TABLE_SIZE];
+
+// unordered_map to map sequence number to pc
+std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
 
 // Global branch and path history
 static uint64_t ghr = 0, phist = 0;
@@ -49,106 +39,93 @@ uint64_t hash_address(uint64_t address){
 }
 
 bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predicted_value) {
-
-    // basic prediction
     uint64_t hashed_address = hash_address(pc);
 
     auto &entry = verification_table[hashed_address];
 
+    // if the entry is greater that the threshold or this is the first piece
     if (entry.conf >= CONF_THRESH && piece == 0){
+        // predict a value
         predicted_value = entry.data + entry.stride;
-        // printf("Predicted Value: %" PRIu64 "\n", entry.data);
         return true;
     }
     else {
+        // don't predict
         return false;
     }
 }
 
 void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # (starts at 0 and increments indefinitely)
-                       bool eligible,			// true: instruction is eligible for value prediction. false: not eligible.
+                       bool eligible,			    // true: instruction is eligible for value prediction. false: not eligible.
 		               uint8_t prediction_result,	// 0: incorrect, 1: correct, 2: unknown (not revealed)
-		               // Note: can assemble local and global branch history using pc, next_pc, and insn.
 		               uint64_t pc,
 		               uint64_t next_pc,
 		               InstClass insn,
 		               uint8_t piece,
-		               // Note: up to 3 logical source register specifiers, up to 1 logical destination register specifier.
-		               // 0xdeadbeef means that logical register does not exist.
-		               // May use this information to reconstruct architectural register file state (using log. reg. and value at updatePredictor()).
 		               uint64_t src1,
 		               uint64_t src2,
 		               uint64_t src3,
 		               uint64_t dst) {
     
-    // In this example, we will only attempt to predict ALU/LOAD/SLOWALU 
-
-    // bool isPredictable = insn == aluInstClass || insn == loadInstClass || insn == slowAluInstClass;
-
-    // It's an instruction we are interested in predicting, update the first table history
-    // Note that some other type of predictors may not want to update at this time if the
-    // prediction is unknown to be correct or incorrect
-
-    // At this point, any branch-related information is architectural, i.e.,
-    // updating the GHR/LHRs is safe.
     bool isCondBr = insn == condBranchInstClass;
     bool isIndBr = insn == uncondIndirectBranchInstClass;
 
-    // Infrastructure provides perfect branch prediction.
-    // As a result, the branch-related histories can be updated now.
+    // update the branch history
     if(isCondBr)
         ghr = (ghr << 1) | (pc + 4 != next_pc);
 
+    // update the path history
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
 
+    // only map the seqence number to the oc if it is a specifc instruction type, eligible, and this is the first piece
     if ((insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass) && eligible && piece == 0){
         SeqNumToPC.insert({seq_no, pc});
     }
 }
 
-void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
-		             uint64_t actual_addr,	// load or store address (0xdeadbeef if not a load or store instruction)
-		             uint64_t actual_value,	// value of destination register (0xdeadbeef if instr. is not eligible for value prediction)
+void updatePredictor(uint64_t seq_no,		    // dynamic micro-instruction #
+		             uint64_t actual_addr,	    // load or store address (0xdeadbeef if not a load or store instruction)
+		             uint64_t actual_value,	    // value of destination register (0xdeadbeef if instr. is not eligible for value prediction)
 		             uint64_t actual_latency) {	// actual execution latency of instruction
 
-    // It is now safe to update the address history register
-    //if(insn == loadInstClass || insn == storeInstClass) 
-
+    // if seq_no is not in the hash table then skip
     auto it = SeqNumToPC.find(seq_no);
     if (it == SeqNumToPC.end()) return;
 
+    // get pc and remove the association
     uint64_t pc = it->second;
     SeqNumToPC.erase(it);
 
+    // update the address history
     if(actual_addr != 0xdeadbeef) {
         addrHist = (addrHist << 4) | actual_addr;
     }
 
+    // if the the instruction is eligible for value prediction
     if(actual_value != 0xdeadbeef){
-
+        // get the entry from the pc
         uint64_t hashed_address = hash_address(pc);
         auto &entry = verification_table[hashed_address];
 
+        // calculate the new stride
         int64_t new_stride = actual_value - entry.data;
 
-        // if (new_stride == entry.stride) {
-        //     entry.conf = (entry.conf == MAX_CONF) ? MAX_CONF : entry.conf + 1;
-        // } else {
-        //     entry.conf = 0;
-
-        //     entry.stride = new_stride;
-        // }
-
+        // if the new stride is the same as the old stride then the value was accurately predicted.
         if (new_stride == entry.stride) {
+            // increase the confidence
             entry.conf = (entry.conf == MAX_CONF) ? MAX_CONF : entry.conf + 1;
         } else {
+            // decrease the confidence
             entry.conf = (entry.conf > 0) ? entry.conf - 1 : 0;
+
+            // update the stride when the confidence drops too low
             if (entry.conf == 0) {
                 entry.stride = new_stride;
             }
         }
 
+        // update the entry value
         entry.data = actual_value;
     }
 }
@@ -160,6 +137,7 @@ void beginPredictor(int argc_other, char **argv_other) {
     for (int i = 0; i < argc_other; i++)
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
 
+    // prefill the verification table with all 0s
     for (int i = 0; i < TABLE_SIZE; i ++){
         verification_table[i] = {0, 0, 0};
     }
@@ -168,9 +146,4 @@ void beginPredictor(int argc_other, char **argv_other) {
 void endPredictor() {
 	printf("CONTESTANT OUTPUT--------------------------\n");
 	printf("--------------------------\n");
-
-    uint64_t length = SeqNumToPC.size();
-    
-
-    printf("\nHash Table Length: %" PRIu64 "\n", length);
 }
