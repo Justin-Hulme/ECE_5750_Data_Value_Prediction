@@ -20,17 +20,25 @@
 #define TABLE_ADDRESS_WIDTH 16
 constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
+#define SAT_COUNT_MAX 10000
+
 struct VerificationTableEntry
 {
     uint8_t valid;
     uint64_t data;
 };
 
+struct ClassificationTableEntry
+{
+    uint64_t saturating_counter;
+    int8_t predict;
+};
+
 std::unordered_map<uint64_t, uint64_t> SeqNumToPC;
 uint64_t table_misses = 0;
 
 VerificationTableEntry verification_table[TABLE_SIZE];
-// uint64_t classification_table[TABLE_SIZE];
+ClassificationTableEntry classification_table[TABLE_SIZE];
 
 // Global branch and path history
 static uint64_t ghr = 0, phist = 0;
@@ -49,15 +57,13 @@ bool getPrediction(uint64_t seq_no, uint64_t pc, uint8_t piece, uint64_t& predic
     // basic prediction
     uint64_t hashed_address = hash_address(pc);
 
-    VerificationTableEntry entry = verification_table[hashed_address];
+    auto &entry = verification_table[hashed_address];
 
-    if (entry.valid == 1){
+    if (entry.valid == 1 && classification_table[hashed_address].predict == 1 && piece == 0){
         predicted_value = entry.data;
-        // printf("Predicted Value: %" PRIu64 "\n", entry.data);
         return true;
     }
     else {
-        printf("table miss\n");
         return false;
     }
 }
@@ -99,7 +105,7 @@ void speculativeUpdate(uint64_t seq_no,        		// dynamic micro-instruction # 
     if(isIndBr)
 	phist = (phist << 4) | (next_pc & 0x3);
 
-    if (insn == loadInstClass || insn == storeInstClass){
+    if ((insn == loadInstClass || insn == aluInstClass || insn == slowAluInstClass) && eligible && piece == 0){
         SeqNumToPC.insert({seq_no, pc});
     }
 }
@@ -109,19 +115,41 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
 		             uint64_t actual_value,	// value of destination register (0xdeadbeef if instr. is not eligible for value prediction)
 		             uint64_t actual_latency) {	// actual execution latency of instruction
 
-    // It is now safe to update the address history register
-    //if(insn == loadInstClass || insn == storeInstClass) 
+    // if seq_no is not in the hash table then skip
+    auto it = SeqNumToPC.find(seq_no);
+    if (it == SeqNumToPC.end()) return;
 
-    uint64_t pc = SeqNumToPC[seq_no];
-    SeqNumToPC.erase(seq_no);
+    // get pc and remove the association
+    uint64_t pc = it->second;
+    SeqNumToPC.erase(it);
 
-    if(pc != 0xdeadbeef) {
+    // update the address history
+    if(actual_addr != 0xdeadbeef) {
         addrHist = (addrHist << 4) | actual_addr;
+    }
 
-        uint64_t hashed_address = hash_address(actual_addr);
+    // if the the instruction is eligible for value prediction
+    if(actual_value != 0xdeadbeef) {
+        uint64_t hashed_address = hash_address(pc);
+        auto &entry = verification_table[hashed_address];
+        auto &class_entry = classification_table[hashed_address];
 
-        verification_table[hashed_address].data = actual_value;
-        verification_table[hashed_address].valid = 1;
+        if (actual_addr == entry.data){
+            class_entry.saturating_counter ++;
+        } else{
+            class_entry.saturating_counter --;
+        }
+
+        if (class_entry.saturating_counter >= SAT_COUNT_MAX){
+            class_entry.saturating_counter = SAT_COUNT_MAX;
+            class_entry.predict = 1;
+        } else if (class_entry.saturating_counter <= 0){
+            class_entry.saturating_counter = 0;
+            class_entry.predict = 0;
+        }
+
+        entry.data = actual_value;
+        entry.valid = 1;
     }
 }
 
