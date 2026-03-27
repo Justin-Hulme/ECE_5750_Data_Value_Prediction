@@ -22,6 +22,9 @@ constexpr int TABLE_SIZE = 1 << TABLE_ADDRESS_WIDTH;
 
 #define SATURATING_COUNTER_MAX 1
 
+bool last_value = false;
+bool stride = false;
+
 struct VerificationTableEntry
 {
     uint8_t tag;
@@ -160,8 +163,16 @@ void updatePredictor(uint64_t seq_no,		// dynamic micro-instruction #
 }
 
 void beginPredictor(int argc_other, char **argv_other) {
-    if (argc_other > 0)
+    if (argc_other > 0){
         printf("CONTESTANT ARGUMENTS:\n");
+
+        if (strcmp(argv_other[0], "last_value") == 0){
+            last_value = true;
+        } else if (strcmp(argv_other[0], "stride") == 0){
+            stride = true;
+        }
+    }
+
 
     for (int i = 0; i < argc_other; i++)
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
