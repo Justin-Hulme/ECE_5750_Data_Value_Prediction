@@ -4,12 +4,14 @@ OPT = -O3
 LIBS = -lz -lcvp -lz
 FLAGS = -std=c++11 -L. $(LIBS) $(OPT) -no-pie
 
+EXE ?= cvp
+
 OBJ = mypredictor.o
 DEPS = cvp.h mypredictor.h
 
-all: cvp
+all: $(EXE)
 
-cvp: $(OBJ)
+$(EXE): $(OBJ)
 	$(CC) $(FLAGS) -o $@ $^
 
 %.o: %.cc $(DEPS)
@@ -18,15 +20,15 @@ cvp: $(OBJ)
 .PHONY: clean test single
 
 clean:
-	rm -f *.o cvp
+	rm -f *.o $(EXE)
 	rm -rf results
 
 # ------------------------
 # FULL TEST (ALL TRACES)
 # ------------------------
-test: cvp
+test: $(EXE)
 	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ] || [ -z "$(MODEL)" ]; then \
-		echo "Usage: make test TEST=name REF=reference.csv"; \
+		echo "Usage: make test TEST=name REF=reference.csv MODEL=..."; \
 		exit 1; \
 	fi
 
@@ -38,7 +40,7 @@ test: cvp
 		out="$(TEST)/$$name.txt"; \
 		if [ ! -f "$$out" ]; then \
 			echo "Running $$name"; \
-			./cvp -v $$f > "$$out" $(MODEL); \
+			./$(EXE) -v $$f > "$$out" $(MODEL); \
 		else \
 			echo "Skipping $$name (already exists)"; \
 		fi; \
@@ -53,7 +55,7 @@ test: cvp
 # ------------------------
 # SINGLE TRACE
 # ------------------------
-single: cvp
+single: $(EXE)
 	@if [ -z "$(TEST)" ] || [ -z "$(REF)" ] || [ -z "$(TRACE)" ]; then \
 		echo "Usage: make single TEST=name REF=reference.csv TRACE=tracefile"; \
 		exit 1; \
@@ -66,7 +68,7 @@ single: cvp
 	OUT="$(TEST)/$$TRACE_NAME.txt"; \
 	if [ ! -f "$$OUT" ]; then \
 		echo "Generating $$TRACE_NAME"; \
-		./cvp -v traces/$$TRACE_NAME > "$$OUT"; \
+		./$(EXE) -v traces/$$TRACE_NAME > "$$OUT"; \
 	else \
 		echo "Skipping $$TRACE_NAME (already exists)"; \
 	fi
