@@ -9,7 +9,7 @@ if len(sys.argv) != 2:
 
 DIR = sys.argv[1]
 
-header = ["trace", "prediction-eligible instructions", "correct predictions", "incorrect predictions", "percent predicted"]
+header = ["trace", "prediction-eligible instructions", "correct predictions", "incorrect predictions", "percent predicted", "IPC"]
 
 data = []
 
@@ -20,7 +20,13 @@ for path in Path(DIR).iterdir():
             
             coles_stupid_list.append(path.name)
 
-            justins_stupid_list = [re.findall(r'\d+', x)[0] for x in file.readlines()[-4:-1]]
+            justins_stupid_list = [
+                matches[0]
+                for matches in (re.findall(r'= (\d+\.*\d*)', x) for x in file.readlines()[-6:-1])
+                if matches
+            ]
+
+            justins_stupid_list.append(justins_stupid_list.pop(0))
 
             coles_stupid_list.extend(justins_stupid_list)
 

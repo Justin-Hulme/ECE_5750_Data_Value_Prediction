@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <unordered_map>
 
+// #define LAST_VALUE_OVERRIDE
+#define STRIDE_PREDICTION_OVERRIDE
+
 bool last_value = false;
 bool stride = false;
 
@@ -216,21 +219,27 @@ void updatePredictor(uint64_t seq_no,		    // dynamic micro-instruction #
 }
 
 void beginPredictor(int argc_other, char **argv_other) {
-    if (argc_other > 0){
-        printf("CONTESTANT ARGUMENTS:\n");
+    #ifdef LAST_VALUE_OVERRIDE
+        last_value = true;
+    #elif defined(STRIDE_PREDICTION_OVERRIDE)
+        stride = true;
+    #else
+        if (argc_other > 0){
+            printf("CONTESTANT ARGUMENTS:\n");
 
-        if (strcmp(argv_other[0], "last_value") == 0){
-            last_value = true;
-        } else if (strcmp(argv_other[0], "stride") == 0){
-            stride = true;
+            if (strcmp(argv_other[0], "last_value") == 0){
+                last_value = true;
+            } else if (strcmp(argv_other[0], "stride") == 0){
+                stride = true;
+            } else {
+                printf("The type of prediction can be either \"last_value\" or \"stride\"");
+                // exit(2);
+            }
         } else {
-            printf("The type of prediction can be either \"last_value\" or \"stride\"");
-            exit(2);
+            printf("Please include the type of prediction you want as the last argument (\"last_value\" or \"stride\")");
+            //exit(2);
         }
-    } else {
-        printf("Please include the type of prediction you want as the last argument (\"last_value\" or \"stride\")");
-        exit(2);
-    }
+    #endif
 
     for (int i = 0; i < argc_other; i++)
         printf("\targv_other[%d] = %s\n", i, argv_other[i]);
